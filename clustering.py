@@ -374,7 +374,7 @@ def map_clusters(list_clustering):
 
         # columns that are not mapped yet, and a dataframe of those columns
         unmapped_cols = unmapped_cols.drop(col_map.keys())
-        unmapped = vc_list[i][unmapped_cols]
+        unmapped = vc_list[j][unmapped_cols]
 
         # similarity matrix from the point of view of the source
         source_similarity = ((available.T @ unmapped).T / (available > 0).sum()).T
