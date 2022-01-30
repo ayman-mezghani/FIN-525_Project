@@ -57,7 +57,7 @@ def get_Louvain_cluster(R, filename, t_0, t_1, day_state=False):
     # day_state = TRUE -> market state clustering
 
     # Check if cluster already exists
-    if (exists(filename) and os.path.getsize(filename) > 0):
+    if exists(filename) and os.path.getsize(filename) > 0:
 
         # Import clustering
         DF = pd.read_parquet(filename)
@@ -281,3 +281,140 @@ def one_step_pred(cluster):
     # matrix(i,j) is the probability to go from state i to state j
 
     return (matrix)
+
+
+def vc_t_i(liste_cluster):
+    res = []
+
+    for l in liste_cluster:
+        l['values'] = 1
+        l = l.pivot(columns='Cluster', values='values').fillna(0).sort_index()
+        res.append(l)
+
+    return res
+
+
+def correlation_matrices(liste_vc1, liste_vc2):
+    K1 = ((liste_vc1.T @ liste_vc2).T / (liste_vc1.T @ liste_vc1).sum(0)).T
+    K2 = (liste_vc1.T @ liste_vc2) / (liste_vc2.T @ liste_vc2).sum(0)
+    return K1, K2
+
+
+def birth(K2):
+    return list(np.where(K2.sum(0) == 0)[0])
+
+
+def death(K1):
+    return list(np.where(K1.sum(1) == 0)[0])
+
+
+def merge_growth(K1, theta):
+    kk = K1.copy()
+
+    kk[kk < theta] = 0
+
+    kk_ = kk.values
+    kk_[~(kk_ == kk_.max(axis=1, keepdims=1))] = 0
+
+    coordinates = np.argwhere(kk_ > 0)
+
+    return [(kk.index[r], kk.columns[c]) for r, c in coordinates]
+
+
+def split_contraction(K2, theta):
+    kk = K2.copy()
+
+    kk[kk < theta] = 0
+
+    kk_ = kk.values
+    kk_[~(kk_ == kk_.max(axis=0, keepdims=1))] = 0
+
+    coordinates = np.argwhere(kk_ > 0)
+
+    return [(kk.index[r], kk.columns[c]) for r, c in coordinates]
+
+
+def map_clusters(list_clustering):
+    # compyte a one hot matrix representing the appartenance of the elements to each cluster
+    vc_list = vc_t_i(list_clustering)
+
+    list_clustering[0] = list_clustering[0][['Cluster']]
+
+    # This dataframe will serve as a memory for last seen respresentatives of a cluster. It is used in mapping below
+    repres = pd.DataFrame()
+    for i in range(len(vc_list) - 1):
+        repres[vc_list[i].columns] = vc_list[i]
+
+        j = i + 1
+
+        unmapped_cols = vc_list[j].columns
+
+        # compute correlation matrices and growth (row, col) pairs
+        k1, k2 = correlation_matrices(vc_list[i], vc_list[j])
+        growth = merge_growth(k1, 0.5)
+
+        # create a preliminary dictionary, mapping columns to a list of candidate new names
+        col_map = dict()
+        for row, col in growth:
+            if col not in col_map.keys():
+                col_map[col] = []
+            col_map[col].append(row)
+
+        # for each candidate list
+        for k, v in col_map.items():
+            # if more than one candidate, keep the candidate having the largest representation in the destinantion
+            if len(v) > 1:
+                col_map[k] = k2[k].loc[v].idxmax()
+            # if only one candidate, keep it
+            else:
+                col_map[k] = v[0]
+
+        # dataframe with available cluster labels and their representatives
+        available = repres[repres.columns.drop(col_map.values())]
+
+        # columns that are not mapped yet, and a dataframe of those columns
+        unmapped_cols = unmapped_cols.drop(col_map.keys())
+        unmapped = vc_list[i][unmapped_cols]
+
+        # similarity matrix from the point of view of the source
+        source_similarity = ((available.T @ unmapped).T / (available > 0).sum()).T
+
+        # similarity matrix from the point of view of the destination
+        destination_similarity = (available.T @ unmapped) / (unmapped > 0).sum()
+
+        # multiplication of the two above matrices, and keeping only values larger than 0.5*0.5 = 0.25
+        similarity = source_similarity * destination_similarity
+        similarity = (similarity >= 0.25) * similarity
+
+        # create a mapping using the similarities, greedily selecting the max of the matrix,
+        # then deleting the mapped row and col
+        complete = []
+        while not similarity.empty:
+            # if the maximum similarity is 0, stop.
+            if similarity.max().max() == 0:
+                break
+
+            # get the coordinates of the larges value in the matrix
+            coordinates = np.where(similarity == similarity.max().max())
+            r = similarity.index[coordinates[0][0]]
+            c = similarity.index[coordinates[1][0]]
+
+            # adding values to our mapping dictionary, then delethe the row and column
+            col_map[c] = r
+            similarity.drop(index=r, inplace=True)
+            similarity.drop(columns=c, inplace=True)
+
+        # the remaining unmapped columns are mapped to new labels
+        max_label = repres.shape[1]
+        for c in similarity.columns:
+            if c not in col_map.keys():  # this should be always True
+                col_map[c] = max_label
+                max_label += 1
+
+        display(col_map)
+        vc_list[j].rename(columns=col_map, inplace=True)
+        list_clustering[j] = list_clustering[j][['Cluster']].applymap(col_map.get)
+
+        display(vc_list[j])
+
+    return list_clustering
