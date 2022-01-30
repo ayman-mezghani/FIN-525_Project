@@ -397,7 +397,7 @@ def map_clusters(list_clustering):
             # get the coordinates of the larges value in the matrix
             coordinates = np.where(similarity == similarity.max().max())
             r = similarity.index[coordinates[0][0]]
-            c = similarity.index[coordinates[1][0]]
+            c = similarity.columns[coordinates[1][0]]
 
             # adding values to our mapping dictionary, then delethe the row and column
             col_map[c] = r
@@ -411,10 +411,10 @@ def map_clusters(list_clustering):
                 col_map[c] = max_label
                 max_label += 1
 
-        display(col_map)
+        #display(col_map)
         vc_list[j].rename(columns=col_map, inplace=True)
         list_clustering[j] = list_clustering[j][['Cluster']].applymap(col_map.get)
 
-        display(vc_list[j])
+        #display(vc_list[j])
 
     return list_clustering
