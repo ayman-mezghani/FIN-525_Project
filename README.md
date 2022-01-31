@@ -7,6 +7,7 @@ Maxence Robaux, Ayman Mezghani
 
 Data is to be extracted in the following manner:
 ```
+data/
 ├── clean/
 │   ├── 1m/
 │   ├── 2m/
